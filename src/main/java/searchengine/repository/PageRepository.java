@@ -13,4 +13,6 @@ public interface PageRepository extends CrudRepository<Page, Long> {
     List<Page> findAllByPath(String path);
     List<Page> findAllBySite(Site site);
 
+    List<Page> findAllByPathAndSite(String path, Site site);
+
 }

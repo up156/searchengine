@@ -30,6 +30,9 @@ public class Index {
     @Column(name = "\"rank\"",  nullable = false)
     private Float rank;
 
-
-
+    public Index(Page page, Lemma lemma, Float rank) {
+        this.page = page;
+        this.lemma = lemma;
+        this.rank = rank;
+    }
 }

@@ -34,5 +34,9 @@ public class Lemma {
     @OneToMany(mappedBy = "lemma")
     private List<Index> index;
 
-
+    public Lemma(Site site, String lemma, Long frequency) {
+        this.site = site;
+        this.lemma = lemma;
+        this.frequency = frequency;
+    }
 }

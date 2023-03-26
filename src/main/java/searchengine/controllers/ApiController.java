@@ -25,7 +25,8 @@ public class ApiController {
         return ResponseEntity.ok(statisticsService.stopIndexing());
     }
     @PostMapping("/indexPage")
-    public ResponseEntity<StatisticsResponse> indexPage(String url) {
+    @ResponseBody
+    public ResponseEntity<StatisticsResponse> indexPage(@RequestParam String url) {
         return ResponseEntity.ok(statisticsService.indexPage(url));
     }
 
