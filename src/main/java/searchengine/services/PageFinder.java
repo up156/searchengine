@@ -29,6 +29,8 @@ public class PageFinder extends RecursiveTask<HashSet<Page>> {
     private SiteRepository siteRepository;
     private PageRepository pageRepository;
 
+    private static HashSet<String> hashSet = new HashSet<>();
+
     private StatisticsServiceImpl statisticsService;
 
     public PageFinder(String pageUrl, Site initial, SiteRepository siteRepository, PageRepository pageRepository, StatisticsServiceImpl statisticsService) {
@@ -52,28 +54,32 @@ public class PageFinder extends RecursiveTask<HashSet<Page>> {
         HashSet<Page> pageList = new HashSet<>();
         HashSet<Page> pageListExceptions = new HashSet<>();
 
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
 
         if (!siteRepository.findAllByStatus(Status.FAILED).isEmpty()) {
             System.out.println("FOURTH BREAK");
             Thread.currentThread().interrupt();
             this.cancel(true);
         }
-
         try {
-            try {
 
-                Connection connection = Jsoup.connect(pageUrl).timeout(20000).get().connection();
+            try {
+                Thread.sleep(3000);
+                Connection connection = Jsoup.connect(pageUrl)
+                        .userAgent("Mozilla/5.0 (Windows; U; WindowsNT 5.1; en-US; rv1.8.1.6) Gecko/20070725 Firefox/2.0.0.6")
+//                        .referrer("http://www.google.com")
+                        .timeout(20000).get().connection();
                 Long statusCode = (long) connection.response().statusCode();
                 Document doc = connection.get();
                 Elements elements = doc.select("a");
                 for (Element el : elements) {
                     String currentPage = el.attr("abs:href");
+
+
+                    if (hashSet.contains(currentPage)) {
+                        continue;
+                    }
                     System.out.println(currentPage);
+                    hashSet.add(currentPage);
 
                     if (!siteRepository.findAllByStatus(Status.FAILED).isEmpty()) {
 
@@ -98,6 +104,8 @@ public class PageFinder extends RecursiveTask<HashSet<Page>> {
                 exception.printStackTrace();
                 pageListExceptions.add(new Page(initial, exception.getUrl(), (long) exception.getStatusCode(), "NA"));
 
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
             }
         } catch (IOException e) {
             e.printStackTrace();

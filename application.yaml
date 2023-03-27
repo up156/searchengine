@@ -1,24 +1,24 @@
 indexing-settings:
   input:
-    - url: https://ipfran.ru
-      name: ipfran
-    - url: https://skillbox.ru
-      name: Skillbox
-#    - url: https://volochek.life
-#      name: volochek
+#    - url: https://ipfran.ru
+#      name: ipfran
+#    - url: https://skillbox.ru
+#      name: Skillbox
+    - url: https://volochek.life
+      name: volochek
 #    - url: http://radiomv.ru
 #      name: radio
-#    - url: https://dimonvideo.ru
-#      name: dimonvideo
+    - url: https://dimonvideo.ru
+      name: dimonvideo
 #    - url: https://nikoartgallery.com
 #      name: nikoartgallery
 #    - url:  https://et-cetera.ru/mobile
 #      name: et-cetera.ru
-#    - url:  https://www.lutherancathedral.ru
+#    - url:  https://lutherancathedral.ru
 #      name: lutherancathedral
 #    - url:  https://dombulgakova.ru/
 #      name: dombulgakova
-#    - url:  https://www.svetlovka.ru/
+#    - url:  https://svetlovka.ru
 #      name: svetlovka
 
 

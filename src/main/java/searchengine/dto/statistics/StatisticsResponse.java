@@ -19,4 +19,9 @@ public class StatisticsResponse {
         this.result = result;
         this.error = error;
     }
+
+    public StatisticsResponse(Boolean result, StatisticsData statistics) {
+        this.result = result;
+        this.statistics = statistics;
+    }
 }

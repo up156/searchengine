@@ -30,7 +30,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class StatisticsServiceImpl implements StatisticsService {
 
-    private final Random random = new Random();
     private final InputList input;
     private final SiteRepository siteRepository;
     private final LemmaRepository lemmaRepository;
@@ -41,44 +40,48 @@ public class StatisticsServiceImpl implements StatisticsService {
 
     @Override
     public StatisticsResponse getStatistics() {
-        String[] statuses = {"INDEXED", "FAILED", "INDEXING"};
-        String[] errors = {
-                "Ошибка индексации: главная страница сайта не доступна",
-                "Ошибка индексации: сайт не доступен",
-                ""
-        };
 
-        TotalStatistics total = new TotalStatistics();
-        total.setSites(input.getInput().size());
-        total.setIndexing(true);
+        log.info("StatisticsServiceImpl in getStatistics going to send statistics for the sites {}", input.getInput());
 
-        List<DetailedStatisticsItem> detailed = new ArrayList<>();
-        List<Input> sitesList = input.getInput();
-        for (int i = 0; i < sitesList.size(); i++) {
-            Input site = sitesList.get(i);
-            DetailedStatisticsItem item = new DetailedStatisticsItem();
-            item.setName(site.getName());
-            item.setUrl(site.getUrl());
-            int pages = random.nextInt(1_000);
-            int lemmas = pages * random.nextInt(1_000);
-            item.setPages(pages);
-            item.setLemmas(lemmas);
-            item.setStatus(statuses[i % 3]);
-            item.setError(errors[i % 3]);
-            item.setStatusTime(System.currentTimeMillis() -
-                    (random.nextInt(10_000)));
-            total.setPages(total.getPages() + pages);
-            total.setLemmas(total.getLemmas() + lemmas);
-            detailed.add(item);
+        if (input.getInput().isEmpty()) {
+            StatisticsResponse response = new StatisticsResponse(true);
+            response.setStatistics(new StatisticsData(new TotalStatistics(0L,0L,0L,false),
+                    Collections.emptyList()));
+            return response;
         }
 
-        StatisticsResponse response = new StatisticsResponse();
-        StatisticsData data = new StatisticsData();
-        data.setTotal(total);
-        data.setDetailed(detailed);
-        response.setStatistics(data);
-        response.setResult(true);
-        return response;
+        List<String> listUrls = input.getInput().stream().map(Input::getUrl).toList();
+        List<Site> siteList = listUrls.stream().map(siteRepository::findByUrl).toList();
+
+        if (siteList.get(0) == null) {
+            StatisticsResponse response = new StatisticsResponse(true);
+            response.setStatistics(new StatisticsData(new TotalStatistics(0L,0L,0L,false),
+                    Collections.emptyList()));
+            return response;
+        }
+
+        List<Page> listPage = new ArrayList<>();
+        siteList.forEach(s -> listPage.addAll(pageRepository.findAllBySite(s)));
+        List<Lemma> lemmaList = new ArrayList<>();
+        siteList.forEach(s -> lemmaList.addAll(lemmaRepository.findAllBySite(s)));
+
+        TotalStatistics total = new TotalStatistics((long) siteList.size(),
+                (long) listPage.size(),
+                (long) lemmaList.size(),
+                !siteRepository.findAllByStatus(Status.INDEXING).isEmpty());
+
+        List<DetailedStatisticsItem> detailedList = new ArrayList<>();
+
+        siteList.forEach(s -> {
+            DetailedStatisticsItem item = new DetailedStatisticsItem(s.getUrl(),s.getName(), s.getStatus(), s.getStatusTime(),
+                     (long) pageRepository.findAllBySite(s).size(), (long) lemmaRepository.findAllBySite(s).size());
+            if (s.getStatus().equals(Status.FAILED)) {
+                item.setError(s.getLastError());
+            }
+            detailedList.add(item);
+        });
+
+        return new StatisticsResponse(true, new StatisticsData(total, detailedList));
     }
 
     @Override
@@ -163,7 +166,12 @@ public class StatisticsServiceImpl implements StatisticsService {
         log.info("StatisticsServiceImpl in indexPage started process for the page: " + url);
 
         HashMap<String, Long> result = new HashMap<>();
-        Site site = siteRepository.findByUrl(url.substring(0, url.indexOf(".") + 3));
+        String suffix = (url.substring(url.indexOf(".")));
+        if (suffix.contains("/")) {
+            suffix = suffix.substring(0, suffix.indexOf("/"));
+        }
+
+        Site site = siteRepository.findByUrl(url.substring(0, url.indexOf(suffix) + suffix.length()));
 
         String path = url.substring(url.indexOf(".") + 3);
 
