@@ -45,23 +45,9 @@ public class PageFinder extends RecursiveTask<HashSet<Page>> {
     @Override
     protected HashSet<Page> compute() {
 
-        if (Thread.currentThread().isInterrupted()) {
-            System.out.println("FIRST BREAK");
-            this.cancel(true);
-
-        }
-
         HashSet<Page> pageList = new HashSet<>();
         HashSet<Page> pageListExceptions = new HashSet<>();
-
-
-        if (!siteRepository.findAllByStatus(Status.FAILED).isEmpty()) {
-            System.out.println("FOURTH BREAK");
-            Thread.currentThread().interrupt();
-            this.cancel(true);
-        }
         try {
-
             try {
                 Thread.sleep(3000);
                 Connection connection = Jsoup.connect(pageUrl)
@@ -81,7 +67,7 @@ public class PageFinder extends RecursiveTask<HashSet<Page>> {
                     System.out.println(currentPage);
                     hashSet.add(currentPage);
 
-                    if (!siteRepository.findAllByStatus(Status.FAILED).isEmpty()) {
+                    if (siteRepository.findById(initial.getId()).get().getStatus().equals(Status.FAILED)) {
 
                         System.out.println("SECOND BREAK");
                         this.cancel(true);
@@ -116,9 +102,8 @@ public class PageFinder extends RecursiveTask<HashSet<Page>> {
         List<PageFinder> taskList = new ArrayList<>();
 
         for (Page page : pageList) {
-            List<Site> siteList = siteRepository.findAllByStatus(Status.FAILED);
-            if (!siteList.isEmpty()) {
-                if (!Thread.currentThread().isInterrupted()) {
+            if (!siteRepository.findById(initial.getId()).get().getStatus().equals(Status.FAILED)) {
+                if (Thread.currentThread().isInterrupted()) {
                     System.out.println("THIRD BREAK");
                     Thread.currentThread().interrupt();
                     this.cancel(true);

@@ -35,10 +35,10 @@ public class Site {
     @Column(nullable = false)
     private String name;
 
-    @OneToMany(mappedBy = "site", fetch = FetchType.EAGER)
+    @OneToMany(mappedBy = "site", cascade = CascadeType.ALL)
     private List<Page> page;
 
-    @OneToMany(mappedBy = "site", fetch = FetchType.LAZY)
+    @OneToMany(mappedBy = "site", cascade = CascadeType.ALL)
     private List<Lemma> lemma;
 
     public Site(Status status, ZonedDateTime statusTime, String url, String name) {

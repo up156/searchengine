@@ -22,6 +22,8 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 @Log4j2
@@ -45,7 +47,7 @@ public class StatisticsServiceImpl implements StatisticsService {
 
         if (input.getInput().isEmpty()) {
             StatisticsResponse response = new StatisticsResponse(true);
-            response.setStatistics(new StatisticsData(new TotalStatistics(0L,0L,0L,false),
+            response.setStatistics(new StatisticsData(new TotalStatistics(0L, 0L, 0L, false),
                     Collections.emptyList()));
             return response;
         }
@@ -55,7 +57,7 @@ public class StatisticsServiceImpl implements StatisticsService {
 
         if (siteList.get(0) == null) {
             StatisticsResponse response = new StatisticsResponse(true);
-            response.setStatistics(new StatisticsData(new TotalStatistics(0L,0L,0L,false),
+            response.setStatistics(new StatisticsData(new TotalStatistics(0L, 0L, 0L, false),
                     Collections.emptyList()));
             return response;
         }
@@ -73,8 +75,8 @@ public class StatisticsServiceImpl implements StatisticsService {
         List<DetailedStatisticsItem> detailedList = new ArrayList<>();
 
         siteList.forEach(s -> {
-            DetailedStatisticsItem item = new DetailedStatisticsItem(s.getUrl(),s.getName(), s.getStatus(), s.getStatusTime(),
-                     (long) pageRepository.findAllBySite(s).size(), (long) lemmaRepository.findAllBySite(s).size());
+            DetailedStatisticsItem item = new DetailedStatisticsItem(s.getUrl(), s.getName(), s.getStatus(), s.getStatusTime(),
+                    (long) pageRepository.findAllBySite(s).size(), (long) lemmaRepository.findAllBySite(s).size());
             if (s.getStatus().equals(Status.FAILED)) {
                 item.setError(s.getLastError());
             }
@@ -87,41 +89,38 @@ public class StatisticsServiceImpl implements StatisticsService {
     @Override
     public StatisticsResponse startIndexing() {
 
-        List<String> inputList = input.getInput().stream().map(Input::getUrl).toList();
-
         log.info("StatisticsServiceImpl in startIndexing started..");
 
-        List<Site> list = inputList
-                .stream()
-                .map(siteRepository::findByUrl)
-                .filter(Objects::nonNull)
-                .toList();
+        if(!siteRepository.findAllByStatus(Status.INDEXING).isEmpty()) {
 
-        List<Site> indexingList = list.stream().filter(s -> s.getStatus().equals(Status.INDEXING)).toList();
-
-        if (!indexingList.isEmpty()) {
             log.info("StatisticsServiceImpl in startIndexing: indexing already in progress");
             return new StatisticsResponse(false, "Индексация уже запущена");
         }
 
-        if (!list.isEmpty()) {
-            log.info("StatisticsServiceImpl in startIndexing deleted Sites: {} and Pages for this sites. Will be re-indexed", list);
-            list.forEach(s -> pageRepository.deleteAll(pageRepository.findAllBySite(s)));
-            siteRepository.deleteAll(list);
+        if (!siteRepository.findAllByStatus(Status.FAILED).isEmpty() || !siteRepository.findAllByStatus(Status.INDEXED).isEmpty()) {
+
+            log.info("StatisticsServiceImpl in startIndexing deleted Sites and Pages for this sites. Will be re-indexed");
+            dropDatabase();
+
+//                list.stream().map(pageRepository::findAllBySite).forEach(l -> l.forEach(this::deletePageLemmasIndexes));
+//                list.forEach(siteRepository::delete);
         }
+
+        List<Site> list = input.getInput().stream().map(i -> siteRepository.findByUrl(i.getUrl())).filter(Objects::nonNull).toList();
 
         return indexSites(createSites());
     }
 
     private List<Site> createSites() {
-        input.getInput().forEach(s -> siteRepository.save(new Site(Status.INDEXING,
-                ZonedDateTime.of(LocalDateTime.now(), ZoneOffset.UTC),
-                s.getUrl(), s.getName())));
-        List<Site> result = input.getInput()
-                .stream()
-                .map(Input::getUrl)
-                .map(siteRepository::findByUrl)
-                .toList();
+
+        List<Site> result = new ArrayList<>();
+        for (Input initialInput : input.getInput()) {
+            Site newSite = new Site(Status.INDEXING,
+                    ZonedDateTime.of(LocalDateTime.now(), ZoneOffset.UTC),
+                    initialInput.getUrl(), initialInput.getName());
+            siteRepository.save(newSite);
+            result.add(newSite);
+        }
 
         log.info("StatisticsServiceImpl in createSites creates sites: {}.", result);
 
@@ -135,8 +134,9 @@ public class StatisticsServiceImpl implements StatisticsService {
 
         siteList.forEach(s -> {
 
-                    Thread thread = new IndexThread(s, this, pageRepository, siteRepository);
-                    thread.start();
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            executor.execute(new IndexThread(s, this, pageRepository, siteRepository));
+            executor.shutdown();
 
                 }
         );
@@ -173,7 +173,7 @@ public class StatisticsServiceImpl implements StatisticsService {
 
         Site site = siteRepository.findByUrl(url.substring(0, url.indexOf(suffix) + suffix.length()));
 
-        String path = url.substring(url.indexOf(".") + 3);
+        String path = url.substring(url.indexOf(".") + suffix.length());
 
         List<Page> pageList = pageRepository.findAllByPathAndSite(path, site).stream().filter(Objects::nonNull).toList();
         if (site.getName().isEmpty()) {
@@ -186,19 +186,7 @@ public class StatisticsServiceImpl implements StatisticsService {
 
                 log.info("StatisticsServiceImpl in indexPage started deleting page, lemmas and indexes for {}: " + url);
 
-                List<Index> indexList = indexRepository.findAllByPageId(pageList.get(0).getId());
-                List<Lemma> lemmaList = indexList.stream().map(Index::getLemma).toList();
-                lemmaList.forEach(l -> {
-                    Long frequency = l.getFrequency();
-                    if (frequency == 1L) {
-                    lemmaRepository.delete(l);
-                } else {
-                    l.setFrequency(frequency - 1L);
-                    lemmaRepository.save(l);
-                }});
-
-                indexRepository.deleteAll(indexList);
-                pageRepository.deleteAll(pageList);
+                pageList.forEach(this::deletePageLemmasIndexes);
 
             }
 
@@ -252,4 +240,32 @@ public class StatisticsServiceImpl implements StatisticsService {
     public StatisticsResponse search(String query, String site, Long offset, Long limit) {
         return null;
     }
+
+    private synchronized void deletePageLemmasIndexes(Page page) {
+
+        log.info("StatisticsServiceImpl in deletePageLemmasIndexes started deleting page, lemmas and indexes for {}: ", page);
+
+        List<Index> indexList = indexRepository.findAllByPageId(page.getId());
+        List<Lemma> lemmaList = indexList.stream().map(Index::getLemma).toList();
+        lemmaList.forEach(l -> {
+            Long frequency = l.getFrequency();
+            if (frequency == 1L) {
+                lemmaRepository.delete(l);
+            } else {
+                l.setFrequency(frequency - 1L);
+                lemmaRepository.save(l);
+            }
+        });
+
+        indexRepository.deleteAll(indexList);
+        pageRepository.delete(page);
+    }
+
+    private synchronized void dropDatabase() {
+        indexRepository.deleteAll();
+        lemmaRepository.deleteAll();
+        pageRepository.deleteAll();
+        siteRepository.deleteAll();
+    }
+
 }
