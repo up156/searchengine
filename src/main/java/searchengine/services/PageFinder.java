@@ -22,16 +22,19 @@ import java.util.concurrent.RecursiveTask;
 
 @Log4j2
 @Transactional
-public class PageFinder extends RecursiveTask<HashSet<Page>> {
+public class PageFinder extends RecursiveTask<HashSet<String>> {
 
     private final String pageUrl;
     private final Site initial;
-    private SiteRepository siteRepository;
-    private PageRepository pageRepository;
+    private final SiteRepository siteRepository;
+    private final PageRepository pageRepository;
+    private final StatisticsServiceImpl statisticsService;
 
     private static HashSet<String> hashSet = new HashSet<>();
 
-    private StatisticsServiceImpl statisticsService;
+    public static void setHashSet(HashSet<String> hashSet) {
+        PageFinder.hashSet = hashSet;
+    }
 
     public PageFinder(String pageUrl, Site initial, SiteRepository siteRepository, PageRepository pageRepository, StatisticsServiceImpl statisticsService) {
         this.initial = initial;
@@ -43,94 +46,94 @@ public class PageFinder extends RecursiveTask<HashSet<Page>> {
     }
 
     @Override
-    protected HashSet<Page> compute() {
+    protected HashSet<String> compute() {
 
-        HashSet<Page> pageList = new HashSet<>();
+        HashSet<String> pageList = new HashSet<>();
         HashSet<Page> pageListExceptions = new HashSet<>();
-        try {
+
+        if (siteRepository.findById(initial.getId()).get().getStatus().equals(Status.FAILED)) {
+
+            System.out.println("FIRST BREAK");
+
+        } else {
+
             try {
-                Thread.sleep(3000);
-                Connection connection = Jsoup.connect(pageUrl)
-                        .userAgent("Mozilla/5.0 (Windows; U; WindowsNT 5.1; en-US; rv1.8.1.6) Gecko/20070725 Firefox/2.0.0.6")
+                try {
+
+                    Thread.sleep(4500);
+                    Connection connection = Jsoup.connect(pageUrl)
+                            .userAgent("Mozilla/5.0 (Windows; U; WindowsNT 5.1; en-US; rv1.8.1.6) Gecko/20070725 Firefox/2.0.0.6")
 //                        .referrer("http://www.google.com")
-                        .timeout(20000).get().connection();
-                Long statusCode = (long) connection.response().statusCode();
-                Document doc = connection.get();
-                Elements elements = doc.select("a");
-                for (Element el : elements) {
-                    String currentPage = el.attr("abs:href");
+                            .followRedirects(false)
+                            .timeout(20000).get().connection();
+                    Long statusCode = (long) connection.response().statusCode();
+                    Document doc = connection.get();
+                    Page page = new Page(initial, pageUrl.substring(initial.getUrl().length()), statusCode, doc.body().wholeText());
+                    pageRepository.save(page);
+                    statisticsService.indexNewPage(page);
 
+                    Elements elements = doc.select("a");
 
-                    if (hashSet.contains(currentPage)) {
-                        continue;
-                    }
-                    System.out.println(currentPage);
-                    hashSet.add(currentPage);
+                    for (Element el : elements) {
+                        String currentPage = el.attr("abs:href");
 
-                    if (siteRepository.findById(initial.getId()).get().getStatus().equals(Status.FAILED)) {
+                        if (hashSet.contains(currentPage)) {
+                            continue;
+                        }
 
-                        System.out.println("SECOND BREAK");
-                        this.cancel(true);
-                        break;
-                    }
-                    if (currentPage.matches(pageUrl + "[^.\\s#]+") && currentPage.length() < 100) {
-                        String currentPath = currentPage.substring(initial.getUrl().length());
+                        System.out.println(currentPage);
+                        hashSet.add(currentPage);
 
-                        if (pageRepository.findAllByPath(currentPath).isEmpty() && !Thread.currentThread().isInterrupted()) {
-                            String text = Jsoup.connect(currentPage).followRedirects(false).timeout(20000).get().body().wholeText();
-                            pageList.add(new Page(initial, currentPage.substring(initial.getUrl().length()), statusCode, text));
-                            statisticsService.indexPage(currentPage);
-                            log.info("parsing page " + currentPage);
-                            log.info("parsing page " + currentPage.substring(initial.getUrl().length()));
+                        String suffix = (pageUrl.substring(pageUrl.indexOf(".")));
+                        if (suffix.contains("/")) {
+                            suffix = suffix.substring(0, suffix.indexOf("/"));
+                        }
+
+                        if (currentPage.matches(pageUrl.substring(0, pageUrl.indexOf(suffix) + suffix.length()) + "[^.\\s#]+")
+                                && pageRepository.findAllByPath(currentPage.substring(initial.getUrl().length())).isEmpty()
+                                && currentPage.length() < 100) {
+
+                            pageList.add(currentPage);
+
                         }
                     }
+
+                } catch (HttpStatusException exception) {
+                    exception.printStackTrace();
+                    pageListExceptions.add(new Page(initial, exception.getUrl(), (long) exception.getStatusCode(), "NA"));
+
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
                 }
-
-            } catch (HttpStatusException exception) {
-                exception.printStackTrace();
-                pageListExceptions.add(new Page(initial, exception.getUrl(), (long) exception.getStatusCode(), "NA"));
-
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
+            } catch (IOException e) {
+                e.printStackTrace();
+                System.out.println(pageUrl);
+                pageListExceptions.add(new Page(initial, pageUrl, 500L, "NA"));
             }
-        } catch (IOException e) {
-            e.printStackTrace();
-            System.out.println(pageUrl);
-            pageListExceptions.add(new Page(initial, pageUrl, 500L, "NA"));
-        }
 
-        List<PageFinder> taskList = new ArrayList<>();
+            List<PageFinder> taskList = new ArrayList<>();
 
-        for (Page page : pageList) {
             if (!siteRepository.findById(initial.getId()).get().getStatus().equals(Status.FAILED)) {
-                if (Thread.currentThread().isInterrupted()) {
-                    System.out.println("THIRD BREAK");
-                    Thread.currentThread().interrupt();
-                    this.cancel(true);
+                for (String page : pageList) {
 
-                    break;
+                    PageFinder task = new PageFinder(page, initial, siteRepository, pageRepository, statisticsService);
+                    task.fork();
+                    taskList.add(task);
+                }
+
+                for (PageFinder task : taskList) {
+                    pageList.addAll(task.join());
+                    pageRepository.saveAll(pageListExceptions);
+                    return pageList;
                 }
             }
-            PageFinder task = new PageFinder(initial.getUrl() + page.getPath(), initial, siteRepository, pageRepository, statisticsService);
-            task.fork();
-            taskList.add(task);
         }
 
-
-        for (PageFinder task : taskList) {
-            if (Thread.currentThread().isInterrupted()) {
-                break;
-            }
-            pageList.addAll(task.join());
-
-        }
-
-        pageList.addAll(pageListExceptions);
-        pageRepository.saveAll(pageList);
-        return pageList;
+        return null;
     }
-
 }
+
+
 
 
 

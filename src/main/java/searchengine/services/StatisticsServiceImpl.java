@@ -134,9 +134,10 @@ public class StatisticsServiceImpl implements StatisticsService {
 
         siteList.forEach(s -> {
 
-            ExecutorService executor = Executors.newSingleThreadExecutor();
-            executor.execute(new IndexThread(s, this, pageRepository, siteRepository));
-            executor.shutdown();
+            ExecutorService executors = Executors.newSingleThreadExecutor();
+
+            executors.execute(new IndexThread(s, this, pageRepository, siteRepository));
+            executors.shutdown();
 
                 }
         );
@@ -238,6 +239,12 @@ public class StatisticsServiceImpl implements StatisticsService {
 
     @Override
     public StatisticsResponse search(String query, String site, Long offset, Long limit) {
+
+        try {
+            lemmatizer.lemmatizeText(query);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
         return null;
     }
 
@@ -259,6 +266,37 @@ public class StatisticsServiceImpl implements StatisticsService {
 
         indexRepository.deleteAll(indexList);
         pageRepository.delete(page);
+    }
+
+    public synchronized void indexNewPage(Page page) {
+
+        log.info("StatisticsServiceImpl in indexPage started indexing new page: {}", page.getPath());
+        HashMap<String, Long> result = new HashMap<>();
+
+            try {
+                result.putAll(lemmatizer.lemmatizeText(page.getContent()));
+            } catch (IOException ex) {
+                ex.printStackTrace();
+            }
+
+            log.info("StatisticsServiceImpl in indexPage indexed page: {}, result: {}. " +
+                    "Going to make some indexes and lemmas.", page.getPath(), result);
+
+            result.forEach((key, value) -> {
+                List<Lemma> currentLemmas = lemmaRepository.findAllByLemma(key);
+                if (!siteRepository.findById(page.getSite().getId()).get().getStatus().equals(Status.FAILED)) {
+
+                    if (currentLemmas.isEmpty()) {
+                        indexRepository.save(new Index(page, lemmaRepository.save(new Lemma(page.getSite(), key, 1L)), value.floatValue()));
+                    } else {
+                        Lemma lemma = currentLemmas.get(0);
+                        lemma.setFrequency(lemma.getFrequency() + 1L);
+                        indexRepository.save(new Index(page, lemmaRepository.save(lemma), value.floatValue()));
+                    }
+                }
+            });
+
+
     }
 
     private synchronized void dropDatabase() {

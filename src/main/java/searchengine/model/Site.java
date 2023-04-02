@@ -35,10 +35,10 @@ public class Site {
     @Column(nullable = false)
     private String name;
 
-    @OneToMany(mappedBy = "site", cascade = CascadeType.ALL)
+    @OneToMany(mappedBy = "site")
     private List<Page> page;
 
-    @OneToMany(mappedBy = "site", cascade = CascadeType.ALL)
+    @OneToMany(mappedBy = "site")
     private List<Lemma> lemma;
 
     public Site(Status status, ZonedDateTime statusTime, String url, String name) {
