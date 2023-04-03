@@ -6,8 +6,9 @@ import org.apache.lucene.morphology.russian.RussianLuceneMorphology;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 @Component
 @Data
 public class Lemmatizer {
@@ -18,19 +19,22 @@ public class Lemmatizer {
         LuceneMorphology luceneMorph =
                 new RussianLuceneMorphology();
         List<String> stringList = List.of(text.toLowerCase().replaceAll("[^а-я]", " ").trim().split("\s+"));
+        List<String> forms = new ArrayList<>();
         System.out.println(stringList);
 
-        stringList = stringList
+        stringList
                 .stream()
+                .filter(s -> s.length() < 50)
+                .filter(s -> s.length() > 1)
                 .filter(s ->
                         !luceneMorph.getMorphInfo(s).toString().contains("СОЮЗ") &&
                                 !luceneMorph.getMorphInfo(s).toString().contains("ПРЕДЛ") &&
                                 !luceneMorph.getMorphInfo(s).toString().contains("МЕЖД") &&
-                                !luceneMorph.getMorphInfo(s).toString().contains("ЧАСТ")
-                )
-                .toList();
+                                !luceneMorph.getMorphInfo(s).toString().contains("ЧАСТ"))
+                .forEach(s -> forms.addAll(luceneMorph.getNormalForms(s)));
 
-        for (String word : stringList) {
+
+        for (String word : forms) {
             if (result.containsKey(word)) {
                 result.put(word, result.get(word) + 1L);
             } else {
@@ -38,17 +42,18 @@ public class Lemmatizer {
             }
         }
 
-        HashMap<String, Long> sortedResult = result.entrySet()
-                .stream()
-                .sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue,
-                        (e1, e2) -> e1, LinkedHashMap::new));
+//        HashMap<String, Long> sortedResult = result.entrySet()
+//                .stream()
+//                .sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
+//                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue,
+//                        (e1, e2) -> e1, LinkedHashMap::new));
 
 
-        System.out.println(stringList);
+        System.out.println(forms);
         System.out.println(result);
-        System.out.println(sortedResult);
-        return sortedResult;
+//        System.out.println(sortedResult);
+//        return sortedResult;
+        return result;
     }
-
 }
+

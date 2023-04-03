@@ -37,7 +37,8 @@ public class IndexThread extends Thread {
         }
 
         forkJoinPool.invoke(pageFinder);
-        forkJoinPool.shutdown();
+        forkJoinPool.shutdownNow();
+        pageFinder.join();
 
         site.setStatusTime(ZonedDateTime.of(LocalDateTime.now(), ZoneOffset.UTC));
         site.setStatus(Status.INDEXED);

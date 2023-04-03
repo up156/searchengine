@@ -3,7 +3,6 @@ package searchengine.services;
 import lombok.extern.log4j.Log4j2;
 import org.jsoup.Connection;
 import org.jsoup.HttpStatusException;
-import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
@@ -61,10 +60,11 @@ public class PageFinder extends RecursiveTask<HashSet<String>> {
                 try {
 
                     Thread.sleep(4500);
-                    Connection connection = Jsoup.connect(pageUrl)
-                            .userAgent("Mozilla/5.0 (Windows; U; WindowsNT 5.1; en-US; rv1.8.1.6) Gecko/20070725 Firefox/2.0.0.6")
-//                        .referrer("http://www.google.com")
-                            .followRedirects(false)
+
+                    Connection connection = SSLHelper.getConnection(pageUrl)
+                            .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36")
+                        .referrer("http://www.google.com")
+//                            .followRedirects(false)
                             .timeout(20000).get().connection();
                     Long statusCode = (long) connection.response().statusCode();
                     Document doc = connection.get();
@@ -89,7 +89,9 @@ public class PageFinder extends RecursiveTask<HashSet<String>> {
                             suffix = suffix.substring(0, suffix.indexOf("/"));
                         }
 
-                        if (currentPage.matches(pageUrl.substring(0, pageUrl.indexOf(suffix) + suffix.length()) + "[^.\\s#]+")
+                        if ((currentPage.matches(pageUrl.substring(0, pageUrl.indexOf(suffix) + suffix.length()) + "[^.\\s#]+")
+                                || (currentPage.matches(pageUrl.substring(0, pageUrl.indexOf(suffix) + suffix.length()) + "[^\\s#]+")
+                                && currentPage.endsWith(".html")))
                                 && pageRepository.findAllByPath(currentPage.substring(initial.getUrl().length())).isEmpty()
                                 && currentPage.length() < 100) {
 
@@ -122,11 +124,21 @@ public class PageFinder extends RecursiveTask<HashSet<String>> {
                 }
 
                 for (PageFinder task : taskList) {
-                    pageList.addAll(task.join());
+
+                        pageList.addAll(task.join());
+//                    if (!siteRepository.findById(initial.getId()).get().getStatus().equals(Status.FAILED)) {
+//                        initial.setStatusTime(ZonedDateTime.of(LocalDateTime.now(), ZoneOffset.UTC));
+//                        siteRepository.save(initial);
+//                    }
                     pageRepository.saveAll(pageListExceptions);
-                    return pageList;
                 }
+
+            } else {
+                System.out.println("FIFTH BREAK");
+                this.cancel(true);
             }
+
+            return pageList;
         }
 
         return null;

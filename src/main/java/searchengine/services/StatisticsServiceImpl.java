@@ -238,10 +238,39 @@ public class StatisticsServiceImpl implements StatisticsService {
     }
 
     @Override
-    public StatisticsResponse search(String query, String site, Long offset, Long limit) {
+    public StatisticsResponse search(String query, String siteString, Long offset, Long limit) {
+
+        if (query.trim().isEmpty()) {
+            return new StatisticsResponse(false, 	"Задан пустой поисковый запрос");
+        }
+        List<Site> siteList;
+        if (siteString.trim().isEmpty() && siteRepository.findAllByStatus(Status.INDEXING).isEmpty()) {
+            siteList = siteRepository.findAllByStatus(Status.INDEXED);
+        } else {
+            return new StatisticsResponse(false, 	"Идет индексация сайтов");
+        }
+
+        Site site = siteRepository.findByUrl(siteString);
+
+        if (site == null || !site.getStatus().equals(Status.INDEXED)) {
+
+            return new StatisticsResponse(false, 	"Указанная страница не найдена");
+        } else {
+            siteList.add(site);
+        }
 
         try {
-            lemmatizer.lemmatizeText(query);
+            HashMap<String, Long> sortedResult = lemmatizer.lemmatizeText(query)
+                    .entrySet()
+                    .stream()
+                    .sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue,
+                            (e1, e2) -> e1, LinkedHashMap::new));
+
+//            List<Page> pageList = pageRepository.find indexRepository.findByLemma(
+//                    lemmaRepository.findByLemma(sortedResult.keySet().stream().findFirst().orElse("")));
+//            sortedResult.keySet().stream().map();
+
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -271,31 +300,46 @@ public class StatisticsServiceImpl implements StatisticsService {
     public synchronized void indexNewPage(Page page) {
 
         log.info("StatisticsServiceImpl in indexPage started indexing new page: {}", page.getPath());
-        HashMap<String, Long> result = new HashMap<>();
 
-            try {
-                result.putAll(lemmatizer.lemmatizeText(page.getContent()));
-            } catch (IOException ex) {
-                ex.printStackTrace();
-            }
+
+        try {
+            HashMap<String, Long> result = new HashMap<>(lemmatizer.lemmatizeText(page.getContent()));
+
 
             log.info("StatisticsServiceImpl in indexPage indexed page: {}, result: {}. " +
                     "Going to make some indexes and lemmas.", page.getPath(), result);
 
             result.forEach((key, value) -> {
                 List<Lemma> currentLemmas = lemmaRepository.findAllByLemma(key);
-                if (!siteRepository.findById(page.getSite().getId()).get().getStatus().equals(Status.FAILED)) {
+                if (siteRepository.findAllByStatus(Status.FAILED).isEmpty()) {
 
-                    if (currentLemmas.isEmpty()) {
-                        indexRepository.save(new Index(page, lemmaRepository.save(new Lemma(page.getSite(), key, 1L)), value.floatValue()));
-                    } else {
-                        Lemma lemma = currentLemmas.get(0);
-                        lemma.setFrequency(lemma.getFrequency() + 1L);
-                        indexRepository.save(new Index(page, lemmaRepository.save(lemma), value.floatValue()));
-                    }
+                        if (currentLemmas.isEmpty()) {
+
+                            indexRepository.save(new Index(page, lemmaRepository.save(new Lemma(page.getSite(), key, 1L)), value.floatValue()));
+                        } else {
+                            Lemma lemma = currentLemmas.get(0);
+                            lemma.setFrequency(lemma.getFrequency() + 1L);
+                            indexRepository.save(new Index(page, lemmaRepository.save(lemma), value.floatValue()));
+                        }
+
+                } else {
+                    System.out.println("LEMMA BREAK");
                 }
             });
 
+            Site site = siteRepository.findById(page.getSite().getId()).get();
+
+            if (!site.getStatus().equals(Status.FAILED)) {
+
+                site.setStatusTime(ZonedDateTime.of(LocalDateTime.now(), ZoneOffset.UTC));
+                siteRepository.save(site);
+
+            }
+
+
+            } catch (IOException ex) {
+                ex.printStackTrace();
+            }
 
     }
 
