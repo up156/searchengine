@@ -91,7 +91,7 @@ public class StatisticsServiceImpl implements StatisticsService {
 
         log.info("StatisticsServiceImpl in startIndexing started..");
 
-        if(!siteRepository.findAllByStatus(Status.INDEXING).isEmpty()) {
+        if (!siteRepository.findAllByStatus(Status.INDEXING).isEmpty()) {
 
             log.info("StatisticsServiceImpl in startIndexing: indexing already in progress");
             return new StatisticsResponse(false, "Индексация уже запущена");
@@ -134,10 +134,10 @@ public class StatisticsServiceImpl implements StatisticsService {
 
         siteList.forEach(s -> {
 
-            ExecutorService executors = Executors.newSingleThreadExecutor();
+                    ExecutorService executors = Executors.newSingleThreadExecutor();
 
-            executors.execute(new IndexThread(s, this, pageRepository, siteRepository));
-            executors.shutdown();
+                    executors.execute(new IndexThread(s, this, pageRepository, siteRepository));
+                    executors.shutdown();
 
                 }
         );
@@ -241,20 +241,20 @@ public class StatisticsServiceImpl implements StatisticsService {
     public StatisticsResponse search(String query, String siteString, Long offset, Long limit) {
 
         if (query.trim().isEmpty()) {
-            return new StatisticsResponse(false, 	"Задан пустой поисковый запрос");
+            return new StatisticsResponse(false, "Задан пустой поисковый запрос");
         }
         List<Site> siteList;
         if (siteString.trim().isEmpty() && siteRepository.findAllByStatus(Status.INDEXING).isEmpty()) {
             siteList = siteRepository.findAllByStatus(Status.INDEXED);
         } else {
-            return new StatisticsResponse(false, 	"Идет индексация сайтов");
+            return new StatisticsResponse(false, "Идет индексация сайтов");
         }
 
         Site site = siteRepository.findByUrl(siteString);
 
         if (site == null || !site.getStatus().equals(Status.INDEXED)) {
 
-            return new StatisticsResponse(false, 	"Указанная страница не найдена");
+            return new StatisticsResponse(false, "Указанная страница не найдена");
         } else {
             siteList.add(site);
         }
@@ -297,7 +297,7 @@ public class StatisticsServiceImpl implements StatisticsService {
         pageRepository.delete(page);
     }
 
-    public synchronized void indexNewPage(Page page) {
+    public void indexNewPage(Page page) {
 
         log.info("StatisticsServiceImpl in indexPage started indexing new page: {}", page.getPath());
 
@@ -308,10 +308,10 @@ public class StatisticsServiceImpl implements StatisticsService {
 
             log.info("StatisticsServiceImpl in indexPage indexed page: {}, result: {}. " +
                     "Going to make some indexes and lemmas.", page.getPath(), result);
-
-            result.forEach((key, value) -> {
-                List<Lemma> currentLemmas = lemmaRepository.findAllByLemma(key);
-                if (siteRepository.findAllByStatus(Status.FAILED).isEmpty()) {
+            synchronized (lemmaRepository) {
+                result.forEach((key, value) -> {
+                    List<Lemma> currentLemmas = lemmaRepository.findAllByLemma(key);
+                    if (siteRepository.findAllByStatus(Status.FAILED).isEmpty()) {
 
                         if (currentLemmas.isEmpty()) {
 
@@ -322,11 +322,11 @@ public class StatisticsServiceImpl implements StatisticsService {
                             indexRepository.save(new Index(page, lemmaRepository.save(lemma), value.floatValue()));
                         }
 
-                } else {
-                    System.out.println("LEMMA BREAK");
-                }
-            });
-
+                    } else {
+                        System.out.println("LEMMA BREAK");
+                    }
+                });
+            }
             Site site = siteRepository.findById(page.getSite().getId()).get();
 
             if (!site.getStatus().equals(Status.FAILED)) {
@@ -337,9 +337,9 @@ public class StatisticsServiceImpl implements StatisticsService {
             }
 
 
-            } catch (IOException ex) {
-                ex.printStackTrace();
-            }
+        } catch (IOException ex) {
+            ex.printStackTrace();
+        }
 
     }
 
