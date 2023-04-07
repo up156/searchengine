@@ -9,6 +9,6 @@ import java.util.List;
 public interface LemmaRepository extends CrudRepository<Lemma, Long> {
 
     List<Lemma> findAllByLemma(String lemma);
-
+    Lemma findByLemmaAndSite(String lemma, Site site);
     List<Lemma> findAllBySite(Site site);
 }

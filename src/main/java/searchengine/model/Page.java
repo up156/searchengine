@@ -3,10 +3,8 @@ package searchengine.model;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import lombok.ToString;
-
-import javax.persistence.*;
 import javax.persistence.Index;
+import javax.persistence.*;
 import java.util.List;
 import java.util.Objects;
 
@@ -14,7 +12,6 @@ import java.util.Objects;
 @Getter
 @Setter
 @NoArgsConstructor
-@ToString
 @Table(name = "page", indexes = @Index(columnList = "path"))
 public class Page {
 
@@ -58,5 +55,15 @@ public class Page {
     @Override
     public int hashCode() {
         return Objects.hash(getPath());
+    }
+
+    @Override
+    public String toString() {
+        return "Page{" +
+                "id=" + id +
+                ", site=" + site +
+                ", path='" + path + '\'' +
+                ", code=" + code +
+                '}';
     }
 }

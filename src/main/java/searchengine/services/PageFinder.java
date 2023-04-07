@@ -68,7 +68,7 @@ public class PageFinder extends RecursiveTask<HashSet<String>> {
                             .timeout(20000).get().connection();
                     Long statusCode = (long) connection.response().statusCode();
                     Document doc = connection.get();
-                    Page page = new Page(initial, pageUrl.substring(initial.getUrl().length()), statusCode, doc.body().wholeText());
+                    Page page = new Page(initial, pageUrl.substring(initial.getUrl().length()), statusCode, doc.html());
                     pageRepository.save(page);
                     statisticsService.indexNewPage(page);
 

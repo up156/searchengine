@@ -12,27 +12,32 @@ import java.util.List;
 @Component
 @Data
 public class Lemmatizer {
-    public HashMap<String, Long> lemmatizeText(String text) throws IOException {
+    public HashMap<String, Long> lemmatizeText(String text) {
 
 
         HashMap<String, Long> result = new HashMap<>();
-        LuceneMorphology luceneMorph =
-                new RussianLuceneMorphology();
-        List<String> stringList = List.of(text.toLowerCase().replaceAll("[^а-я]", " ").trim().split("\s+"));
         List<String> forms = new ArrayList<>();
-        System.out.println(stringList);
 
-        stringList
-                .stream()
-                .filter(s -> s.length() < 50)
-                .filter(s -> s.length() > 1)
-                .filter(s ->
-                        !luceneMorph.getMorphInfo(s).toString().contains("СОЮЗ") &&
-                                !luceneMorph.getMorphInfo(s).toString().contains("ПРЕДЛ") &&
-                                !luceneMorph.getMorphInfo(s).toString().contains("МЕЖД") &&
-                                !luceneMorph.getMorphInfo(s).toString().contains("ЧАСТ"))
-                .forEach(s -> forms.addAll(luceneMorph.getNormalForms(s)));
+        try {
+            LuceneMorphology luceneMorph = new RussianLuceneMorphology();
 
+            List<String> stringList = List.of(text.toLowerCase().replaceAll("[^а-я]", " ").trim().split("\s+"));
+            System.out.println(stringList);
+
+            stringList
+                    .stream()
+                    .filter(s -> s.length() < 50)
+                    .filter(s -> s.length() > 1)
+                    .filter(s ->
+                            !luceneMorph.getMorphInfo(s).toString().contains("СОЮЗ") &&
+                                    !luceneMorph.getMorphInfo(s).toString().contains("ПРЕДЛ") &&
+                                    !luceneMorph.getMorphInfo(s).toString().contains("МЕЖД") &&
+                                    !luceneMorph.getMorphInfo(s).toString().contains("ЧАСТ"))
+                    .forEach(s -> forms.add(luceneMorph.getNormalForms(s).get(0)));
+
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
 
         for (String word : forms) {
             if (result.containsKey(word)) {
@@ -51,9 +56,7 @@ public class Lemmatizer {
 
         System.out.println(forms);
         System.out.println(result);
-//        System.out.println(sortedResult);
-//        return sortedResult;
         return result;
+
     }
 }
-
