@@ -21,7 +21,7 @@ import java.util.concurrent.RecursiveTask;
 
 @Log4j2
 @Transactional
-public class PageFinder extends RecursiveTask<HashSet<String>> {
+public class PageFinder extends RecursiveTask<HashSet<Page>> {
 
     private final String pageUrl;
     private final Site initial;
@@ -45,9 +45,10 @@ public class PageFinder extends RecursiveTask<HashSet<String>> {
     }
 
     @Override
-    protected HashSet<String> compute() {
+    protected HashSet<Page> compute() {
 
         HashSet<String> pageList = new HashSet<>();
+        HashSet<Page> pageResult = new HashSet<>();
         HashSet<Page> pageListExceptions = new HashSet<>();
 
         if (siteRepository.findById(initial.getId()).get().getStatus().equals(Status.FAILED)) {
@@ -59,18 +60,18 @@ public class PageFinder extends RecursiveTask<HashSet<String>> {
             try {
                 try {
 
-                    Thread.sleep(4500);
+                    Thread.sleep(1500);
 
                     Connection connection = SSLHelper.getConnection(pageUrl)
                             .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36")
                         .referrer("http://www.google.com")
-//                            .followRedirects(false)
+                            .followRedirects(false)
                             .timeout(20000).get().connection();
                     Long statusCode = (long) connection.response().statusCode();
                     Document doc = connection.get();
                     Page page = new Page(initial, pageUrl.substring(initial.getUrl().length()), statusCode, doc.html());
                     pageRepository.save(page);
-                    statisticsService.indexNewPage(page);
+//                    statisticsService.indexNewPage(page);
 
                     Elements elements = doc.select("a");
 
@@ -89,9 +90,9 @@ public class PageFinder extends RecursiveTask<HashSet<String>> {
                             suffix = suffix.substring(0, suffix.indexOf("/"));
                         }
 
-                        if ((currentPage.matches(pageUrl.substring(0, pageUrl.indexOf(suffix) + suffix.length()) + "[^.\\s#]+")
-                                || (currentPage.matches(pageUrl.substring(0, pageUrl.indexOf(suffix) + suffix.length()) + "[^\\s#]+")
-                                && currentPage.endsWith(".html")))
+                        String substring = pageUrl.substring(0, pageUrl.indexOf(suffix) + suffix.length());
+                        if ((currentPage.matches(substring + "[^.\\s#]+")
+                                || (currentPage.matches(substring + "[^\\s#]+") && currentPage.endsWith(".html")))
                                 && pageRepository.findAllByPath(currentPage.substring(initial.getUrl().length())).isEmpty()
                                 && currentPage.length() < 100) {
 
@@ -125,11 +126,7 @@ public class PageFinder extends RecursiveTask<HashSet<String>> {
 
                 for (PageFinder task : taskList) {
 
-                        pageList.addAll(task.join());
-//                    if (!siteRepository.findById(initial.getId()).get().getStatus().equals(Status.FAILED)) {
-//                        initial.setStatusTime(ZonedDateTime.of(LocalDateTime.now(), ZoneOffset.UTC));
-//                        siteRepository.save(initial);
-//                    }
+                        pageResult.addAll(task.join());
                     pageRepository.saveAll(pageListExceptions);
                 }
 
@@ -138,7 +135,7 @@ public class PageFinder extends RecursiveTask<HashSet<String>> {
                 this.cancel(true);
             }
 
-            return pageList;
+            return pageResult;
         }
 
         return null;

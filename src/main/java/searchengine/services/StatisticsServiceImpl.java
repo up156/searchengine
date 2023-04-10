@@ -161,7 +161,7 @@ public class StatisticsServiceImpl implements StatisticsService {
         HashMap<String, Long> result = new HashMap<>();
         String suffix = (url.substring(url.indexOf(".")));
         if (suffix.contains("/")) {
-            suffix = suffix.substring(0, suffix.indexOf("/"));
+            suffix = suffix.substring(0, suffix.indexOf("/") + 1);
         }
         Site site = siteRepository.findByUrl(url.substring(0, url.indexOf(suffix) + suffix.length()));
 
@@ -253,6 +253,7 @@ public class StatisticsServiceImpl implements StatisticsService {
         }
 
         Long count = 0L;
+        List<Page> relevanceList = new ArrayList<>();
         HashMap<Page, Float> relevanceMap = new HashMap<>();
 
         for
@@ -300,28 +301,37 @@ public class StatisticsServiceImpl implements StatisticsService {
                 log.info("StatisticsServiceImpl in search result (reduced): {}", reducedPageList);
 
                 count += reducedPageList.size();
-                Float totalAbsoluteRelevance = 0F;
-                for (Page page : reducedPageList) {
-                    Float absoluteRelevance = 0F;
-                    for (String word : sortedResult.keySet()) {
-                        absoluteRelevance += indexRepository.findByLemmaAndPage(lemmaRepository.findByLemmaAndSite(word, site), page).getRank();
-                    }
-                    relevanceMap.put(page, absoluteRelevance);
-                    totalAbsoluteRelevance = (totalAbsoluteRelevance > absoluteRelevance) ? totalAbsoluteRelevance : absoluteRelevance;
-                }
-
-                Float finalTotalAbsoluteRelevance = totalAbsoluteRelevance;
-                relevanceMap = relevanceMap.entrySet()
-                        .stream()
-                        .peek(e -> e.setValue(e.getValue() / finalTotalAbsoluteRelevance))
-                        .sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
-                        .limit(10)
-                        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue,
-                                (e1, e2) -> e1, LinkedHashMap::new));
-                log.info("StatisticsServiceImpl in search get relevanceMap: {}", relevanceMap);
-
+                relevanceList.addAll(reducedPageList);
             }
         }
+
+        Float totalAbsoluteRelevance = 0F;
+        HashMap<String, Long> sortedResult = lemmatizer.lemmatizeText(query);
+        for (Page page : relevanceList) {
+            Float absoluteRelevance = 0F;
+            for (String word : sortedResult.keySet()) {
+                absoluteRelevance += indexRepository.findByLemmaAndPage(lemmaRepository.findByLemmaAndSite(word, page.getSite()), page).getRank();
+            }
+            relevanceMap.put(page, absoluteRelevance);
+            totalAbsoluteRelevance = (totalAbsoluteRelevance > absoluteRelevance) ? totalAbsoluteRelevance : absoluteRelevance;
+            log.info("StatisticsServiceImpl in search get page in relevance list: {}", page.getId());
+            log.info("StatisticsServiceImpl in search get absolute relevance: {}", absoluteRelevance);
+            log.info("StatisticsServiceImpl in search get total absolute relevance: {}", totalAbsoluteRelevance);
+        }
+
+        Float finalTotalAbsoluteRelevance = totalAbsoluteRelevance;
+
+        relevanceMap = relevanceMap.entrySet()
+                .stream()
+                .peek(e -> e.setValue(e.getValue() / finalTotalAbsoluteRelevance))
+                .sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
+                .limit(limit + offset)
+                .skip(offset)
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue,
+                        (e1, e2) -> e1, LinkedHashMap::new));
+        log.info("StatisticsServiceImpl in search get relevanceMap: {}", relevanceMap);
+
+
         List<SearchData> data = new ArrayList<>();
         relevanceMap.forEach((p, value) -> data.add(new SearchData(p.getSite().getUrl(), p.getSite().getName(), p.getPath(),
                 Jsoup.parse(p.getContent()).title(), getSnippet(p, query), value)));
@@ -344,7 +354,7 @@ public class StatisticsServiceImpl implements StatisticsService {
 //            String pageText = Jsoup.parse(page.getContent()).text().replaceAll("\\s+", " ");
             String pageText = Jsoup.parse(page.getContent()).text().strip();
             log.info("StatisticsServiceImpl get pageText: {}", pageText);
-            List<String> sentences = List.of(pageText.split("\\.[^А-Я]"));
+            List<String> sentences = List.of(pageText.split("\\."));
             sentences = sentences
                     .stream()
                     .map(s -> s.concat("."))
@@ -357,6 +367,7 @@ public class StatisticsServiceImpl implements StatisticsService {
                 while (s.length() > 200) {
                     int count = s.indexOf(" ", 100);
                     if (count > 200) {
+                        s = "";
                         continue;
                     }
                     shortSentences.add(s.substring(0, count));
@@ -370,39 +381,43 @@ public class StatisticsServiceImpl implements StatisticsService {
 
             log.info("StatisticsServiceImpl get sentences: {}", shortSentences);
             StringBuilder temp = new StringBuilder();
-            for (String s : sentences) {
+            Long counter = (long) shortSentences.size();
+            for (String s : shortSentences) {
 
-                if (temp.length() < 300) {
-                    temp.append(" ").append(s);
-                } else {
-
+                counter--;
+                if (temp.length() > 300 || counter == 0) {
                     List<String> pageString = List.of(temp.toString().replaceAll("[^А-я]", " ").trim().split("\s+"));
                     log.info("StatisticsServiceImpl get pageString: {}", pageString);
-                    HashSet<String> initialWords = new HashSet<>();
-                    HashSet<String> baseWords = new HashSet<>();
-                    pageString.forEach(string -> {
-                        if (luceneMorphology.checkString(string.toLowerCase())) {
-                            String normalFormString = luceneMorphology.getNormalForms(string.toLowerCase()).get(0);
-                            if (queryBaseWords.contains(normalFormString)) {
-                                initialWords.add(string);
-                                baseWords.add(normalFormString);
+                    log.info("StatisticsServiceImpl get pageString size: {}", pageString.size());
+                    if (pageString.size() > 1) {
+                        HashSet<String> initialWords = new HashSet<>();
+                        HashSet<String> baseWords = new HashSet<>();
+                        pageString.forEach(string -> {
+                            if (luceneMorphology.checkString(string.toLowerCase())) {
+                                String normalFormString = luceneMorphology.getNormalForms(string.toLowerCase()).get(0);
+                                if (queryBaseWords.contains(normalFormString)) {
+                                    initialWords.add(string);
+                                    baseWords.add(normalFormString);
 
+                                }
                             }
-                        }
-                    });
+                        });
 
-                    String snippet = temp.toString();
+                        String snippet = temp.toString();
 
                         for (String w : initialWords) {
                             log.info("StatisticsServiceImpl get w: {}", w);
                             snippet = snippet.replaceAll(w, "<b>" + w + "</b>");
 
                         }
-                    log.info("StatisticsServiceImpl get snippet: {}", snippet);
+                        log.info("StatisticsServiceImpl get snippet: {}", snippet);
                         resultSnippetMap.put(snippet, (long) baseWords.size());
-
-                    temp = new StringBuilder();
+                    }
+                    temp = new StringBuilder(s);
+                } else {
+                    temp.append(" ").append(s);
                 }
+
             }
 
             resultSnippetMap = resultSnippetMap
@@ -410,14 +425,14 @@ public class StatisticsServiceImpl implements StatisticsService {
                     .stream()
                     .sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
                     .limit(1)
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue,
-                        (e1, e2) -> e1, LinkedHashMap::new));
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue,
+                            (e1, e2) -> e1, LinkedHashMap::new));
 
 
-                    log.info("StatisticsServiceImpl get resultSnippetMap: {}", resultSnippetMap);
+            log.info("StatisticsServiceImpl get resultSnippetMap: {}", resultSnippetMap);
 
 
-        return resultSnippetMap.keySet().stream().findFirst().orElse(null);
+            return resultSnippetMap.keySet().stream().findFirst().orElse(null);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
