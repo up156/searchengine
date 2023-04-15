@@ -24,12 +24,14 @@ public class Page {
     @ManyToOne
     private Site site;
 
-    //по условию требуется TEXT, но TEXT слишком длинный для установки индекса.
     @Column
     private String path;
 
     @Column(columnDefinition = "INT", nullable = false)
     private Long code;
+
+    @Column
+    private String title;
 
     @Column(columnDefinition = "MEDIUMTEXT", nullable = false)
     private String content;
@@ -37,11 +39,12 @@ public class Page {
     @OneToMany(mappedBy = "page", cascade = CascadeType.ALL)
     private List<searchengine.model.Index> index;
 
-    public Page(Site site, String path, Long code, String content) {
+    public Page(Site site, String path, Long code, String content, String title) {
         this.site = site;
         this.path = path;
         this.code = code;
         this.content = content;
+        this.title = title;
     }
 
     @Override

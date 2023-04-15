@@ -3,6 +3,7 @@ package searchengine.services;
 import lombok.extern.log4j.Log4j2;
 import org.jsoup.Connection;
 import org.jsoup.HttpStatusException;
+import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
@@ -27,7 +28,6 @@ public class PageFinder extends RecursiveTask<HashSet<Page>> {
     private final Site initial;
     private final SiteRepository siteRepository;
     private final PageRepository pageRepository;
-    private final StatisticsServiceImpl statisticsService;
 
     private static HashSet<String> hashSet = new HashSet<>();
 
@@ -35,12 +35,11 @@ public class PageFinder extends RecursiveTask<HashSet<Page>> {
         PageFinder.hashSet = hashSet;
     }
 
-    public PageFinder(String pageUrl, Site initial, SiteRepository siteRepository, PageRepository pageRepository, StatisticsServiceImpl statisticsService) {
+    public PageFinder(String pageUrl, Site initial, SiteRepository siteRepository, PageRepository pageRepository) {
         this.initial = initial;
         this.pageUrl = pageUrl;
         this.siteRepository = siteRepository;
         this.pageRepository = pageRepository;
-        this.statisticsService = statisticsService;
 
     }
 
@@ -49,31 +48,30 @@ public class PageFinder extends RecursiveTask<HashSet<Page>> {
 
         HashSet<String> pageList = new HashSet<>();
         HashSet<Page> pageResult = new HashSet<>();
-        HashSet<Page> pageListExceptions = new HashSet<>();
 
         if (siteRepository.findById(initial.getId()).get().getStatus().equals(Status.FAILED)) {
 
             System.out.println("FIRST BREAK");
+            this.cancel(true);
 
         } else {
-
             try {
                 try {
 
-                    Thread.sleep(1500);
-
-                    Connection connection = SSLHelper.getConnection(pageUrl)
+                    Thread.sleep(2500);
+                    Connection connection = Jsoup.connect(pageUrl)
                             .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36")
-                        .referrer("http://www.google.com")
+                            .referrer("http://www.google.com")
                             .followRedirects(false)
                             .timeout(20000).get().connection();
                     Long statusCode = (long) connection.response().statusCode();
                     Document doc = connection.get();
-                    Page page = new Page(initial, pageUrl.substring(initial.getUrl().length()), statusCode, doc.html());
+                    Page page = new Page(initial, pageUrl.substring(initial.getUrl().length()), statusCode, doc.wholeText(), doc.title());
                     pageRepository.save(page);
 //                    statisticsService.indexNewPage(page);
 
                     Elements elements = doc.select("a");
+                    HashSet<String> pages = new HashSet<>();
 
                     for (Element el : elements) {
                         String currentPage = el.attr("abs:href");
@@ -96,14 +94,16 @@ public class PageFinder extends RecursiveTask<HashSet<Page>> {
                                 && pageRepository.findAllByPath(currentPage.substring(initial.getUrl().length())).isEmpty()
                                 && currentPage.length() < 100) {
 
-                            pageList.add(currentPage);
+                            pages.add(currentPage);
 
                         }
                     }
 
+                    pageList.addAll(pages);
+
                 } catch (HttpStatusException exception) {
                     exception.printStackTrace();
-                    pageListExceptions.add(new Page(initial, exception.getUrl(), (long) exception.getStatusCode(), "NA"));
+                    pageRepository.save(new Page(initial, exception.getUrl(), (long) exception.getStatusCode(), "NA", "NA"));
 
                 } catch (InterruptedException e) {
                     throw new RuntimeException(e);
@@ -111,7 +111,6 @@ public class PageFinder extends RecursiveTask<HashSet<Page>> {
             } catch (IOException e) {
                 e.printStackTrace();
                 System.out.println(pageUrl);
-                pageListExceptions.add(new Page(initial, pageUrl, 500L, "NA"));
             }
 
             List<PageFinder> taskList = new ArrayList<>();
@@ -119,15 +118,14 @@ public class PageFinder extends RecursiveTask<HashSet<Page>> {
             if (!siteRepository.findById(initial.getId()).get().getStatus().equals(Status.FAILED)) {
                 for (String page : pageList) {
 
-                    PageFinder task = new PageFinder(page, initial, siteRepository, pageRepository, statisticsService);
+                    PageFinder task = new PageFinder(page, initial, siteRepository, pageRepository);
                     task.fork();
                     taskList.add(task);
                 }
 
                 for (PageFinder task : taskList) {
 
-                        pageResult.addAll(task.join());
-                    pageRepository.saveAll(pageListExceptions);
+                    pageResult.addAll(task.join());
                 }
 
             } else {

@@ -2,7 +2,6 @@ package searchengine.services;
 
 import lombok.AllArgsConstructor;
 import org.springframework.transaction.annotation.Transactional;
-import searchengine.model.Page;
 import searchengine.model.Site;
 import searchengine.model.Status;
 import searchengine.repository.PageRepository;
@@ -12,7 +11,6 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.HashSet;
-import java.util.List;
 import java.util.concurrent.ForkJoinPool;
 
 @Transactional
@@ -29,7 +27,7 @@ public class IndexThread extends Thread {
     public void run() {
 
         PageFinder.setHashSet(new HashSet<>());
-        PageFinder pageFinder = new PageFinder(site.getUrl(), site, siteRepository, pageRepository, statisticsService);
+        PageFinder pageFinder = new PageFinder(site.getUrl(), site, siteRepository, pageRepository);
         ForkJoinPool forkJoinPool = new ForkJoinPool();
 
         try {
@@ -41,8 +39,8 @@ public class IndexThread extends Thread {
         forkJoinPool.invoke(pageFinder);
 
         forkJoinPool.shutdownNow();
-        List<Page> pageList = pageRepository.findAllBySite(site);
-        pageList.forEach(statisticsService::indexNewPage);
+//        List<Page> pageList = pageRepository.findAllBySite(site);
+//        statisticsService.indexPages(pageList);
 
         site.setStatusTime(ZonedDateTime.of(LocalDateTime.now(), ZoneOffset.UTC));
         site.setStatus(Status.INDEXED);

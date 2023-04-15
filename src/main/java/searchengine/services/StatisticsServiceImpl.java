@@ -5,6 +5,7 @@ import lombok.extern.log4j.Log4j2;
 import org.apache.lucene.morphology.LuceneMorphology;
 import org.apache.lucene.morphology.russian.RussianLuceneMorphology;
 import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import searchengine.config.Input;
@@ -16,6 +17,7 @@ import searchengine.repository.LemmaRepository;
 import searchengine.repository.PageRepository;
 import searchengine.repository.SiteRepository;
 
+import javax.persistence.EntityManager;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -38,50 +40,44 @@ public class StatisticsServiceImpl implements StatisticsService {
     private final PageRepository pageRepository;
     private final IndexRepository indexRepository;
 
+    private final EntityManager entityManager;
+
     @Override
     public StatisticsResponse getStatistics() {
 
         log.info("StatisticsServiceImpl in getStatistics going to send statistics for the sites {}", input.getInput());
 
-        if (input.getInput().isEmpty()) {
-            StatisticsResponse response = new StatisticsResponse(true);
-            response.setStatistics(new StatisticsData(new TotalStatistics(0L, 0L, 0L, false),
-                    Collections.emptyList()));
-            return response;
-        }
-
         List<String> listUrls = input.getInput().stream().map(Input::getUrl).toList();
         List<Site> siteList = listUrls.stream().map(siteRepository::findByUrl).toList();
 
-        if (siteList.get(0) == null) {
+        if (input.getInput().isEmpty() || siteList.get(0) == null) {
             StatisticsResponse response = new StatisticsResponse(true);
             response.setStatistics(new StatisticsData(new TotalStatistics(0L, 0L, 0L, false),
                     Collections.emptyList()));
             return response;
         }
 
-        List<Page> listPage = new ArrayList<>();
-        siteList.forEach(s -> listPage.addAll(pageRepository.findAllBySite(s)));
-        List<Lemma> lemmaList = new ArrayList<>();
-        siteList.forEach(s -> lemmaList.addAll(lemmaRepository.findAllBySite(s)));
-
-        TotalStatistics total = new TotalStatistics((long) siteList.size(),
-                (long) listPage.size(),
-                (long) lemmaList.size(),
-                !siteRepository.findAllByStatus(Status.INDEXING).isEmpty());
-
         List<DetailedStatisticsItem> detailedList = new ArrayList<>();
 
-        siteList.forEach(s -> {
+        Long totalPages = 0L;
+        Long totalLemmas = 0L;
+
+        for (Site s : siteList) {
+            Long pagesCount = (long) pageRepository.findAllBySite(s).size();
+            Long lemmasCount = (long) lemmaRepository.findAllBySite(s).size();
             DetailedStatisticsItem item = new DetailedStatisticsItem(s.getUrl(), s.getName(), s.getStatus(), s.getStatusTime(),
-                    (long) pageRepository.findAllBySite(s).size(), (long) lemmaRepository.findAllBySite(s).size());
-            if (s.getStatus().equals(Status.FAILED)) {
+                    pagesCount, lemmasCount);
+            totalPages += pagesCount;
+            totalLemmas += lemmasCount;
+
+            if (s.getStatus() == Status.FAILED) {
                 item.setError(s.getLastError());
             }
             detailedList.add(item);
-        });
+        }
 
-        return new StatisticsResponse(true, new StatisticsData(total, detailedList));
+        return new StatisticsResponse(true, new StatisticsData(new TotalStatistics((long) siteList.size(), totalPages, totalLemmas,
+                !siteRepository.findAllByStatus(Status.INDEXING).isEmpty()), detailedList));
     }
 
     @Override
@@ -97,49 +93,18 @@ public class StatisticsServiceImpl implements StatisticsService {
 
         if (!siteRepository.findAllByStatus(Status.FAILED).isEmpty() || !siteRepository.findAllByStatus(Status.INDEXED).isEmpty()) {
 
-            log.info("StatisticsServiceImpl in startIndexing deleted Sites and Pages for this sites. Will be re-indexed");
+            log.info("StatisticsServiceImpl in startIndexing deleted Sites and Pages.");
             dropDatabase();
         }
-
-        List<Site> list = input.getInput().stream().map(i -> siteRepository.findByUrl(i.getUrl())).filter(Objects::nonNull).toList();
 
         return indexSites(createSites());
     }
 
-    private List<Site> createSites() {
-
-        List<Site> result = new ArrayList<>();
-        for (Input initialInput : input.getInput()) {
-            Site newSite = new Site(Status.INDEXING,
-                    ZonedDateTime.of(LocalDateTime.now(), ZoneOffset.UTC),
-                    initialInput.getUrl(), initialInput.getName());
-            siteRepository.save(newSite);
-            result.add(newSite);
-        }
-
-        log.info("StatisticsServiceImpl in createSites creates sites: {}.", result);
-
-        return result;
-
-    }
-
-    private StatisticsResponse indexSites(List<Site> siteList) {
-
-        log.info("StatisticsServiceImpl in startIndexing started indexing sites: " + siteList);
-
-        siteList.forEach(s -> {
-
-                    ExecutorService executors = Executors.newSingleThreadExecutor();
-                    executors.execute(new IndexThread(s, this, pageRepository, siteRepository));
-                    executors.shutdown();
-                }
-        );
-
-        return new StatisticsResponse(true);
-    }
-
     @Override
     public StatisticsResponse stopIndexing() {
+
+        log.info("StatisticsServiceImpl in stopIndexing going to stop indexing");
+
         List<Site> siteList = siteRepository.findAllByStatus(Status.INDEXING);
         if (!siteList.isEmpty()) {
             siteList.forEach(s -> {
@@ -151,6 +116,7 @@ public class StatisticsServiceImpl implements StatisticsService {
             return new StatisticsResponse(true);
         } else
             return new StatisticsResponse(false, "Индексация не запущена");
+
     }
 
     @Override
@@ -185,8 +151,9 @@ public class StatisticsServiceImpl implements StatisticsService {
             log.info("StatisticsServiceImpl in indexPage started indexing page: " + url);
 
             try {
-                String text = Jsoup.connect(url).followRedirects(false).timeout(20000).get().body().wholeText();
-                Page page = new Page(site, path, 200L, text);
+                Document document = Jsoup.connect(url).followRedirects(false).timeout(20000).get();
+                String text = document.body().wholeText();
+                Page page = new Page(site, path, 200L, text, document.title());
                 pageRepository.save(page);
                 log.info("StatisticsServiceImpl in indexPage saved page: " + page.getPath());
             } catch (IOException ex) {
@@ -339,6 +306,40 @@ public class StatisticsServiceImpl implements StatisticsService {
         log.info("StatisticsServiceImpl in getSnippet FINALLY GOT searchDataList {}", data);
 
         return new StatisticsResponse(true, count, data);
+    }
+
+    //==================================================================================================================
+
+    private List<Site> createSites() {
+
+        List<Site> result = new ArrayList<>();
+        for (Input initialInput : input.getInput()) {
+            Site newSite = new Site(Status.INDEXING,
+                    ZonedDateTime.of(LocalDateTime.now(), ZoneOffset.UTC),
+                    initialInput.getUrl(), initialInput.getName());
+            siteRepository.save(newSite);
+            result.add(newSite);
+        }
+
+        log.info("StatisticsServiceImpl in createSites created sites: {}.", result);
+
+        return result;
+
+    }
+
+    private StatisticsResponse indexSites(List<Site> siteList) {
+
+        log.info("StatisticsServiceImpl in indexSites started indexing sites: " + siteList);
+
+        siteList.forEach(s -> {
+
+                    ExecutorService executors = Executors.newSingleThreadExecutor();
+                    executors.execute(new IndexThread(s, this, pageRepository, siteRepository));
+                    executors.shutdown();
+                }
+        );
+
+        return new StatisticsResponse(true);
     }
 
     private synchronized String getSnippet(Page page, String query) {
@@ -498,11 +499,61 @@ public class StatisticsServiceImpl implements StatisticsService {
         }
     }
 
+    public void indexPages(List<Page> pageList) {
+
+        HashMap<String, Long> lemmaResult = new HashMap<>();
+        Site site = pageList.get(0).getSite();
+
+        for (Page page : pageList) {
+
+            HashMap<String, Long> result = new HashMap<>(lemmatizer.lemmatizeText(page.getContent()));
+            result.entrySet().stream().forEach(e -> {
+                if (lemmaResult.containsKey(e.getKey())) {
+                    lemmaResult.put(e.getKey(), e.getValue() + 1L);
+                } else {
+                    lemmaResult.put(e.getKey(), 1L);
+                }
+            });
+        }
+
+        List<Lemma> lemmaList = new ArrayList<>();
+
+        lemmaResult.entrySet().stream().forEach(e -> {
+            lemmaList.add(new Lemma(site, e.getKey(), e.getValue()));
+        });
+
+//        lemmaRepository.saveAll(lemmaList);
+        List<Index> indexList = new ArrayList<>();
+
+        for (Page page : pageList) {
+
+            HashMap<String, Long> result = new HashMap<>(lemmatizer.lemmatizeText(page.getContent()));
+            result.entrySet().forEach(e -> {
+                List<Lemma> reducedList = lemmaList
+                        .stream()
+                        .filter(lemma -> lemma.getLemma().equals(e.getKey()))
+                        .toList();
+                reducedList.forEach(lemma -> indexList.add(new Index(page, lemma, e.getValue().floatValue())));
+            });
+
+        }
+        lemmaRepository.saveAll(lemmaList);
+        indexRepository.saveAll(indexList);
+
+    }
+
+
     private synchronized void dropDatabase() {
-        indexRepository.deleteAll();
-        lemmaRepository.deleteAll();
-        pageRepository.deleteAll();
-        siteRepository.deleteAll();
+
+        entityManager.createNativeQuery(
+                "DELETE FROM `index` where id > 0;").executeUpdate();
+        entityManager.createNativeQuery(
+                "DELETE FROM lemma where id > 0;").executeUpdate();
+        entityManager.createNativeQuery(
+                "DELETE from page where id > 0;").executeUpdate();
+        entityManager.createNativeQuery(
+                "DELETE from site where id > 0;").executeUpdate();
+
     }
 
 }
