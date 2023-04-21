@@ -6,7 +6,6 @@ import searchengine.model.Status;
 import java.time.ZonedDateTime;
 
 @Data
-
 public class DetailedStatisticsItem {
     private String url;
     private String name;

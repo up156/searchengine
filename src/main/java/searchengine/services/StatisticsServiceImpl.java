@@ -131,7 +131,7 @@ public class StatisticsServiceImpl implements StatisticsService {
         }
         Site site = siteRepository.findByUrl(url.substring(0, url.indexOf(suffix) + suffix.length()));
 
-        String path = url.substring(url.indexOf(".") + suffix.length());
+        String path = url.substring(url.indexOf(".") + suffix.length() - 1);
 
         List<Page> pageList = pageRepository.findAllByPathAndSite(path, site).stream().filter(Objects::nonNull).toList();
         if (site.getName().isEmpty()) {
@@ -223,8 +223,7 @@ public class StatisticsServiceImpl implements StatisticsService {
         List<Page> relevanceList = new ArrayList<>();
         HashMap<Page, Float> relevanceMap = new HashMap<>();
 
-        for
-        (Site site : siteList) {
+        for (Site site : siteList) {
 
             log.info("StatisticsServiceImpl in search started searching for query: {} and site: {}", query, site.getUrl());
 
@@ -242,21 +241,10 @@ public class StatisticsServiceImpl implements StatisticsService {
 
             if (!sortedResult.containsValue(0L)) {
 
-                log.info("StatisticsServiceImpl in search has query: {} and sortedResultMap: {}", query, sortedResult);
-
                 List<String> stringsLemmas = sortedResult.keySet().stream().toList();
-                log.info("StatisticsServiceImpl in search has stringsLemmas {}", stringsLemmas);
-
-                Lemma lemma = lemmaRepository.findByLemmaAndSite(stringsLemmas.get(0), site);
-                log.info("StatisticsServiceImpl in search find lemma: {}", lemma.getLemma());
-
-                List<Index> indexList = indexRepository.findAllByLemma(lemma);
-                log.info("StatisticsServiceImpl in search find indexList: {}", indexList.toArray());
-
+                List<Index> indexList = indexRepository.findAllByLemma(lemmaRepository.findByLemmaAndSite(stringsLemmas.get(0), site));
                 List<Page> pageList = new ArrayList<>();
                 indexList.forEach(i -> pageList.add(i.getPage()));
-
-                log.info("StatisticsServiceImpl in search find Pages: {}", pageList);
                 List<Page> reducedPageList = pageList;
                 for (String word : sortedResult.keySet()) {
 
@@ -281,9 +269,6 @@ public class StatisticsServiceImpl implements StatisticsService {
             }
             relevanceMap.put(page, absoluteRelevance);
             totalAbsoluteRelevance = (totalAbsoluteRelevance > absoluteRelevance) ? totalAbsoluteRelevance : absoluteRelevance;
-            log.info("StatisticsServiceImpl in search get page in relevance list: {}", page.getId());
-            log.info("StatisticsServiceImpl in search get absolute relevance: {}", absoluteRelevance);
-            log.info("StatisticsServiceImpl in search get total absolute relevance: {}", totalAbsoluteRelevance);
         }
 
         Float finalTotalAbsoluteRelevance = totalAbsoluteRelevance;
@@ -296,12 +281,10 @@ public class StatisticsServiceImpl implements StatisticsService {
                 .skip(offset)
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue,
                         (e1, e2) -> e1, LinkedHashMap::new));
-        log.info("StatisticsServiceImpl in search get relevanceMap: {}", relevanceMap);
-
 
         List<SearchData> data = new ArrayList<>();
-        relevanceMap.forEach((p, value) -> data.add(new SearchData(p.getSite().getUrl(), p.getSite().getName(), p.getPath(),
-                Jsoup.parse(p.getContent()).title(), getSnippet(p, query), value)));
+        relevanceMap.forEach((p, value) -> data.add(new SearchData(p.getSite().getUrl(), p.getSite().getName(), p.getPath().substring(1),
+                p.getTitle(), getSnippet(p, query), value)));
 
         log.info("StatisticsServiceImpl in getSnippet FINALLY GOT searchDataList {}", data);
 
@@ -351,10 +334,7 @@ public class StatisticsServiceImpl implements StatisticsService {
         try {
             LuceneMorphology luceneMorphology = new RussianLuceneMorphology();
             List<String> queryBaseWords = queryWords.stream().peek(q -> luceneMorphology.getNormalForms(q).get(0)).toList();
-
-//            String pageText = Jsoup.parse(page.getContent()).text().replaceAll("\\s+", " ");
             String pageText = Jsoup.parse(page.getContent()).text().strip();
-            log.info("StatisticsServiceImpl get pageText: {}", pageText);
             List<String> sentences = List.of(pageText.split("\\."));
             sentences = sentences
                     .stream()
@@ -379,8 +359,6 @@ public class StatisticsServiceImpl implements StatisticsService {
             }
 
             HashMap<String, Long> resultSnippetMap = new HashMap<>();
-
-            log.info("StatisticsServiceImpl get sentences: {}", shortSentences);
             StringBuilder temp = new StringBuilder();
             Long counter = (long) shortSentences.size();
             for (String s : shortSentences) {
@@ -388,8 +366,6 @@ public class StatisticsServiceImpl implements StatisticsService {
                 counter--;
                 if (temp.length() > 300 || counter == 0) {
                     List<String> pageString = List.of(temp.toString().replaceAll("[^А-я]", " ").trim().split("\s+"));
-                    log.info("StatisticsServiceImpl get pageString: {}", pageString);
-                    log.info("StatisticsServiceImpl get pageString size: {}", pageString.size());
                     if (pageString.size() > 1) {
                         HashSet<String> initialWords = new HashSet<>();
                         HashSet<String> baseWords = new HashSet<>();
@@ -407,11 +383,8 @@ public class StatisticsServiceImpl implements StatisticsService {
                         String snippet = temp.toString();
 
                         for (String w : initialWords) {
-                            log.info("StatisticsServiceImpl get w: {}", w);
                             snippet = snippet.replaceAll(w, "<b>" + w + "</b>");
-
                         }
-                        log.info("StatisticsServiceImpl get snippet: {}", snippet);
                         resultSnippetMap.put(snippet, (long) baseWords.size());
                     }
                     temp = new StringBuilder(s);
@@ -460,86 +433,50 @@ public class StatisticsServiceImpl implements StatisticsService {
         pageRepository.delete(page);
     }
 
-    public void indexNewPage(Page page) {
-
-        log.info("StatisticsServiceImpl in indexPage started indexing new page: {}", page.getPath());
-
-
-        HashMap<String, Long> result = new HashMap<>(lemmatizer.lemmatizeText(page.getContent()));
-
-
-        log.info("StatisticsServiceImpl in indexPage indexed page: {}, result: {}. " +
-                "Going to make some indexes and lemmas.", page.getPath(), result);
-        synchronized (lemmaRepository) {
-            result.forEach((key, value) -> {
-                Lemma currentLemma = lemmaRepository.findByLemmaAndSite(key, page.getSite());
-                if (siteRepository.findAllByStatus(Status.FAILED).isEmpty()) {
-
-                    if (currentLemma == null) {
-
-                        indexRepository.save(new Index(page, lemmaRepository.save(new Lemma(page.getSite(), key, 1L)), value.floatValue()));
-                    } else {
-
-                        currentLemma.setFrequency(currentLemma.getFrequency() + 1L);
-                        indexRepository.save(new Index(page, lemmaRepository.save(currentLemma), value.floatValue()));
-                    }
-
-                } else {
-                    System.out.println("LEMMA BREAK");
-                }
-            });
-        }
-        Site site = siteRepository.findById(page.getSite().getId()).get();
-
-        if (!site.getStatus().equals(Status.FAILED)) {
-
-            site.setStatusTime(ZonedDateTime.of(LocalDateTime.now(), ZoneOffset.UTC));
-            siteRepository.save(site);
-
-        }
-    }
-
     public void indexPages(List<Page> pageList) {
 
         HashMap<String, Long> lemmaResult = new HashMap<>();
         Site site = pageList.get(0).getSite();
 
         for (Page page : pageList) {
-
-            HashMap<String, Long> result = new HashMap<>(lemmatizer.lemmatizeText(page.getContent()));
-            result.entrySet().stream().forEach(e -> {
-                if (lemmaResult.containsKey(e.getKey())) {
-                    lemmaResult.put(e.getKey(), e.getValue() + 1L);
-                } else {
-                    lemmaResult.put(e.getKey(), 1L);
-                }
-            });
+            if (!siteRepository.findById(site.getId()).get().getStatus().equals(Status.FAILED)) {
+                HashMap<String, Long> result = new HashMap<>(lemmatizer.lemmatizeText(page.getContent()));
+                result.forEach((key, value) -> {
+                    if (lemmaResult.containsKey(key)) {
+                        lemmaResult.put(key, value + 1L);
+                    } else {
+                        lemmaResult.put(key, 1L);
+                    }
+                });
+            }
         }
+
+        site.setStatusTime(ZonedDateTime.of(LocalDateTime.now(), ZoneOffset.UTC));
+        siteRepository.save(site);
 
         List<Lemma> lemmaList = new ArrayList<>();
 
-        lemmaResult.entrySet().stream().forEach(e -> {
-            lemmaList.add(new Lemma(site, e.getKey(), e.getValue()));
-        });
+        lemmaResult.forEach((key, value) -> lemmaList.add(new Lemma(site, key, value)));
 
-//        lemmaRepository.saveAll(lemmaList);
         List<Index> indexList = new ArrayList<>();
 
         for (Page page : pageList) {
-
-            HashMap<String, Long> result = new HashMap<>(lemmatizer.lemmatizeText(page.getContent()));
-            result.entrySet().forEach(e -> {
-                List<Lemma> reducedList = lemmaList
-                        .stream()
-                        .filter(lemma -> lemma.getLemma().equals(e.getKey()))
-                        .toList();
-                reducedList.forEach(lemma -> indexList.add(new Index(page, lemma, e.getValue().floatValue())));
-            });
-
+            if (!siteRepository.findById(site.getId()).get().getStatus().equals(Status.FAILED)) {
+                HashMap<String, Long> result = new HashMap<>(lemmatizer.lemmatizeText(page.getContent()));
+                result.forEach((key, value) -> {
+                    List<Lemma> reducedList = lemmaList
+                            .stream()
+                            .filter(lemma -> lemma.getLemma().equals(key))
+                            .toList();
+                    reducedList.forEach(lemma -> indexList.add(new Index(page, lemma, value.floatValue())));
+                });
+            }
         }
-        lemmaRepository.saveAll(lemmaList);
-        indexRepository.saveAll(indexList);
 
+        if (!siteRepository.findById(site.getId()).get().getStatus().equals(Status.FAILED)) {
+            lemmaRepository.saveAll(lemmaList);
+            indexRepository.saveAll(indexList);
+        }
     }
 
 

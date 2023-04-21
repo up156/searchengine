@@ -1,16 +1,18 @@
 indexing-settings:
   input:
-#    - url: https://ipfran.ru
-#      name: ipfran
-#    - url: https://skillbox.ru
+    - url: http://playback.ru/
+      name: playback
+    - url: https://ipfran.ru/
+      name: ipfran
+#    - url: https://skillbox.ru/
 #      name: Skillbox
-    - url: https://volochek.life
+    - url: https://volochek.life/
       name: volochek
-#    - url: http://radiomv.ru
+#    - url: http://radiomv.ru/
 #      name: radio
-    - url: https://dimonvideo.ru
-      name: dimonvideo
-#    - url: https://nikoartgallery.com
+#    - url: https://dimonvideo.ru/
+#      name: dimonvideo
+#    - url: https://nikoartgallery.com/
 #      name: nikoartgallery
 #    - url:  https://et-cetera.ru/mobile
 #      name: et-cetera.ru
@@ -18,8 +20,10 @@ indexing-settings:
 #      name: lutherancathedral
 #    - url:  https://dombulgakova.ru/
 #      name: dombulgakova
-#    - url:  https://svetlovka.ru
-#      name: svetlovka
+    - url:  https://www.svetlovka.ru/
+      name: svetlovka
+#      - url:  https://palkin.ru/
+#        name: palkin
 
 
 spring:

@@ -15,6 +15,9 @@ import searchengine.repository.PageRepository;
 import searchengine.repository.SiteRepository;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -51,7 +54,6 @@ public class PageFinder extends RecursiveTask<HashSet<Page>> {
 
         if (siteRepository.findById(initial.getId()).get().getStatus().equals(Status.FAILED)) {
 
-            System.out.println("FIRST BREAK");
             this.cancel(true);
 
         } else {
@@ -66,10 +68,8 @@ public class PageFinder extends RecursiveTask<HashSet<Page>> {
                             .timeout(20000).get().connection();
                     Long statusCode = (long) connection.response().statusCode();
                     Document doc = connection.get();
-                    Page page = new Page(initial, pageUrl.substring(initial.getUrl().length()), statusCode, doc.wholeText(), doc.title());
+                    Page page = new Page(initial, pageUrl.substring(initial.getUrl().length() - 1), statusCode, doc.wholeText(), doc.title());
                     pageRepository.save(page);
-//                    statisticsService.indexNewPage(page);
-
                     Elements elements = doc.select("a");
                     HashSet<String> pages = new HashSet<>();
 
@@ -80,12 +80,17 @@ public class PageFinder extends RecursiveTask<HashSet<Page>> {
                             continue;
                         }
 
-                        System.out.println(currentPage);
+                        if (hashSet.size() % 100 == 0) {
+                            initial.setStatusTime(ZonedDateTime.of(LocalDateTime.now(), ZoneOffset.UTC));
+                            siteRepository.save(initial);
+                        }
+
+                        log.info("PageFinder working with page: {}", currentPage);
                         hashSet.add(currentPage);
 
                         String suffix = (pageUrl.substring(pageUrl.indexOf(".")));
                         if (suffix.contains("/")) {
-                            suffix = suffix.substring(0, suffix.indexOf("/"));
+                            suffix = suffix.substring(0, suffix.indexOf("/") + 1);
                         }
 
                         String substring = pageUrl.substring(0, pageUrl.indexOf(suffix) + suffix.length());
@@ -95,7 +100,6 @@ public class PageFinder extends RecursiveTask<HashSet<Page>> {
                                 && currentPage.length() < 100) {
 
                             pages.add(currentPage);
-
                         }
                     }
 
@@ -129,7 +133,7 @@ public class PageFinder extends RecursiveTask<HashSet<Page>> {
                 }
 
             } else {
-                System.out.println("FIFTH BREAK");
+
                 this.cancel(true);
             }
 
